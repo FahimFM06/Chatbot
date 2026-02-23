@@ -9,24 +9,31 @@ from langchain_core.output_parsers import StrOutputParser
 
 
 # ----------------------------
-# Page config
+# Basic app setup
 # ----------------------------
 st.set_page_config(page_title="Groq Q&A Chatbot", page_icon="💬", layout="wide")
 
-
-# ----------------------------
-# API Key
-# ----------------------------
+# If the key is missing, nothing else will work, so we stop early.
 groq_api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
 if not groq_api_key:
     st.error("GROQ_API_KEY not found. Add it in Streamlit Cloud → Settings → Secrets.")
     st.stop()
 
+# Groq uses an OpenAI-compatible endpoint.
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+# Groq changes/retire models sometimes, so I keep the list short and reliable.
+# (gemma2-9b-it was removed, that's why we don't show it anymore.)
+MODEL_OPTIONS = [
+    "llama-3.1-8b-instant",      # fast + best for free-tier usage
+    "llama-3.3-70b-versatile",   # stronger answers, can be slower
+    "groq/compound-mini",        # Groq system option (nice balance)
+    "groq/compound",             # Groq system option (more capable)
+]
 
 
 # ----------------------------
-# LangChain prompt + parser
+# Prompt + parser
 # ----------------------------
 prompt = ChatPromptTemplate.from_messages(
     [
@@ -38,7 +45,7 @@ parser = StrOutputParser()
 
 
 # ----------------------------
-# App state
+# Session state (simple page router)
 # ----------------------------
 if "page" not in st.session_state:
     st.session_state.page = "landing"  # landing -> setup -> chat
@@ -51,31 +58,29 @@ if "settings" not in st.session_state:
     }
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []  # list of {"role": "user"/"assistant", "content": str}
+    st.session_state.messages = []  # [{"role": "...", "content": "..."}]
 
 
 # ----------------------------
-# Helpers
+# Assets helpers
 # ----------------------------
 APP_DIR = Path(__file__).parent
 ASSETS_DIR = APP_DIR / "assets"
 
 
 def img_to_data_uri(img_path: Path) -> str:
+    # Streamlit can't use local file paths directly in CSS on Cloud,
+    # so we convert the image to a base64 data URI.
     if not img_path.exists():
         return ""
     b64 = base64.b64encode(img_path.read_bytes()).decode("utf-8")
-    suffix = img_path.suffix.lower().replace(".", "")
-    mime = "png" if suffix == "png" else suffix
+    ext = img_path.suffix.lower().replace(".", "")
+    mime = "png" if ext == "png" else ext
     return f"data:image/{mime};base64,{b64}"
 
 
 def set_page_background(page_name: str):
-    """
-    landing -> 1.png
-    setup   -> 2.png
-    chat    -> 3.png
-    """
+    # Pick a different background for each page (1,2,3).
     mapping = {
         "landing": ASSETS_DIR / "1.png",
         "setup": ASSETS_DIR / "2.png",
@@ -85,7 +90,7 @@ def set_page_background(page_name: str):
     data_uri = img_to_data_uri(img_path)
 
     if not data_uri:
-        st.warning(f"Background image not found: {img_path}. Please upload it to assets/.")
+        st.warning(f"Background image missing: {img_path}. Put it inside assets/.")
         data_uri = ""
 
     st.markdown(
@@ -96,7 +101,7 @@ def set_page_background(page_name: str):
         footer {{visibility: hidden;}}
         header {{visibility: hidden;}}
 
-        /* Background image */
+        /* Background */
         .stApp {{
             background-image: url("{data_uri}");
             background-size: cover;
@@ -104,7 +109,7 @@ def set_page_background(page_name: str):
             background-attachment: fixed;
         }}
 
-        /* Dark overlay for readability */
+        /* Dark overlay so text stays readable */
         .stApp::before {{
             content: "";
             position: fixed;
@@ -116,7 +121,7 @@ def set_page_background(page_name: str):
             z-index: 0;
         }}
 
-        /* Put content above overlay */
+        /* Content above overlay */
         .block-container {{
             position: relative;
             z-index: 1;
@@ -125,7 +130,7 @@ def set_page_background(page_name: str):
             padding-bottom: 2.5rem;
         }}
 
-        /* Sidebar styling */
+        /* Sidebar */
         [data-testid="stSidebar"] {{
             background: linear-gradient(180deg, rgba(10,10,18,0.92), rgba(5,5,10,0.92));
             border-right: 1px solid rgba(255,255,255,0.08);
@@ -134,7 +139,7 @@ def set_page_background(page_name: str):
             color: rgba(255,255,255,0.90) !important;
         }}
 
-        /* Glass cards */
+        /* Glass panels */
         .glass {{
             border-radius: 22px;
             padding: 34px 30px;
@@ -204,12 +209,8 @@ def set_page_background(page_name: str):
             font-weight: 800;
             box-shadow: 0 12px 30px rgba(0,0,0,0.25);
         }}
-        div.stButton > button:hover {{
-            transform: translateY(-1px);
-            filter: brightness(1.05);
-        }}
 
-        /* Chat container */
+        /* Chat shell */
         .chat-shell {{
             border-radius: 18px;
             padding: 14px;
@@ -219,7 +220,7 @@ def set_page_background(page_name: str):
             backdrop-filter: blur(10px);
         }}
 
-        /* Slightly improve input visibility */
+        /* Make chat input readable */
         [data-testid="stChatInput"] textarea {{
             background: rgba(255,255,255,0.06) !important;
             border: 1px solid rgba(255,255,255,0.16) !important;
@@ -236,8 +237,12 @@ def go(page_name: str):
     st.rerun()
 
 
+# ----------------------------
+# LLM call
+# ----------------------------
 def generate_response(question: str) -> str:
     cfg = st.session_state.settings
+
     llm = ChatOpenAI(
         api_key=groq_api_key,
         base_url=GROQ_BASE_URL,
@@ -245,6 +250,7 @@ def generate_response(question: str) -> str:
         temperature=cfg["temperature"],
         max_tokens=cfg["max_tokens"],
     )
+
     chain = prompt | llm | parser
     return chain.invoke({"question": question})
 
@@ -263,7 +269,7 @@ def landing_page():
             <div class="glass">
               <h1>Groq-Powered<br/>Q&A Chatbot</h1>
               <p>
-                A modern, fast chatbot built with <b>Streamlit</b> + <b>LangChain</b>, hosted online for free on
+                A modern chatbot built with <b>Streamlit</b> + <b>LangChain</b>, hosted online for free on
                 <b>Streamlit Community Cloud</b> and powered by <b>Groq</b>.
               </p>
               <div class="badges">
@@ -296,8 +302,8 @@ def landing_page():
               <h3>What you can do</h3>
               <p>
                 • Ask questions and get instant answers<br/>
-                • Change model and creativity level<br/>
-                • Clear chat and restart anytime
+                • Pick a model and tune creativity<br/>
+                • Share your app link with anyone
               </p>
             </div>
             """,
@@ -307,9 +313,9 @@ def landing_page():
         st.markdown(
             """
             <div class="mini-card">
-              <h3>Perfect for</h3>
+              <h3>Tip</h3>
               <p>
-                Portfolio projects, class demos, quick assistants, and shareable apps.
+                If the bot feels too random, lower the temperature (0.3–0.5 is a good range).
               </p>
             </div>
             """,
@@ -324,7 +330,7 @@ def setup_page():
         """
         <div class="glass">
           <h1>Setup</h1>
-          <p>Choose your model and generation settings. You can update these later from the chat sidebar.</p>
+          <p>Choose the model and settings. You can also change these later from the chat sidebar.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -336,20 +342,26 @@ def setup_page():
     with left:
         st.markdown('<div class="mini-card">', unsafe_allow_html=True)
         st.subheader("Model")
+
         model = st.selectbox(
             "Select Groq model",
-            ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "gemma2-9b-it"],
-            index=["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "gemma2-9b-it"].index(
-                st.session_state.settings["model"]
-            ),
+            MODEL_OPTIONS,
+            index=MODEL_OPTIONS.index(st.session_state.settings["model"])
+            if st.session_state.settings["model"] in MODEL_OPTIONS
+            else 0,
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
         st.markdown('<div class="mini-card">', unsafe_allow_html=True)
         st.subheader("Generation")
-        temperature = st.slider("Temperature", 0.0, 1.0, float(st.session_state.settings["temperature"]), 0.05)
-        max_tokens = st.slider("Max tokens", 64, 2048, int(st.session_state.settings["max_tokens"]), 64)
+
+        temperature = st.slider(
+            "Temperature", 0.0, 1.0, float(st.session_state.settings["temperature"]), 0.05
+        )
+        max_tokens = st.slider(
+            "Max tokens", 64, 2048, int(st.session_state.settings["max_tokens"]), 64
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.write("")
@@ -364,7 +376,7 @@ def setup_page():
             st.session_state.settings.update(
                 {"model": model, "temperature": float(temperature), "max_tokens": int(max_tokens)}
             )
-            st.success("Saved! ✅")
+            st.success("Saved ✅")
 
     with a3:
         if st.button("➡️ Continue to Chat"):
@@ -377,16 +389,16 @@ def setup_page():
 def chat_page():
     set_page_background("chat")
 
-    # Sidebar controls
+    # Sidebar controls (kept here so chat page stays clean)
     st.sidebar.header("Chat Controls")
     st.sidebar.caption("Changes apply to new messages.")
 
     st.session_state.settings["model"] = st.sidebar.selectbox(
         "Model",
-        ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "gemma2-9b-it"],
-        index=["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "gemma2-9b-it"].index(
-            st.session_state.settings["model"]
-        ),
+        MODEL_OPTIONS,
+        index=MODEL_OPTIONS.index(st.session_state.settings["model"])
+        if st.session_state.settings["model"] in MODEL_OPTIONS
+        else 0,
     )
     st.session_state.settings["temperature"] = st.sidebar.slider(
         "Temperature", 0.0, 1.0, float(st.session_state.settings["temperature"]), 0.05
@@ -418,7 +430,7 @@ def chat_page():
 
     st.markdown('<div class="chat-shell">', unsafe_allow_html=True)
 
-    # Show chat history
+    # Show history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -438,7 +450,13 @@ def chat_page():
                     st.markdown(answer)
                     st.session_state.messages.append({"role": "assistant", "content": answer})
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    # If a model ever gets retired again, the error message can be confusing,
+                    # so we show a cleaner hint here.
+                    err = str(e)
+                    if "model_decommissioned" in err or "decommissioned" in err:
+                        st.error("That model was retired by Groq. Pick a different model from the dropdown.")
+                    else:
+                        st.error(f"Error: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
