@@ -1,16 +1,21 @@
 import os
+import base64
+from pathlib import Path
 import streamlit as st
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+
 
 # ----------------------------
 # Page config
 # ----------------------------
 st.set_page_config(page_title="Groq Q&A Chatbot", page_icon="💬", layout="wide")
 
+
 # ----------------------------
-# Secrets / API key
+# API Key
 # ----------------------------
 groq_api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
 if not groq_api_key:
@@ -18,6 +23,7 @@ if not groq_api_key:
     st.stop()
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
 
 # ----------------------------
 # LangChain prompt + parser
@@ -30,102 +36,9 @@ prompt = ChatPromptTemplate.from_messages(
 )
 parser = StrOutputParser()
 
-# ----------------------------
-# Styling (CSS)
-# ----------------------------
-def inject_css():
-    st.markdown(
-        """
-        <style>
-        /* Global */
-        .block-container { padding-top: 2rem; padding-bottom: 2.5rem; max-width: 1200px; }
-        [data-testid="stSidebar"] { background: linear-gradient(180deg, rgba(20,20,35,0.95), rgba(10,10,18,0.95)); }
-        [data-testid="stSidebar"] * { color: #f3f4f6 !important; }
-        .stApp { background: radial-gradient(1200px 800px at 15% 10%, rgba(99,102,241,0.25), transparent 60%),
-                        radial-gradient(1000px 700px at 85% 20%, rgba(16,185,129,0.18), transparent 55%),
-                        linear-gradient(180deg, #070712 0%, #06060f 50%, #05050c 100%); }
-
-        /* Hide Streamlit menu/footer */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-
-        /* Hero card */
-        .hero {
-            border-radius: 22px;
-            padding: 42px 36px;
-            background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
-            border: 1px solid rgba(255,255,255,0.12);
-            box-shadow: 0 18px 50px rgba(0,0,0,0.35);
-            backdrop-filter: blur(10px);
-        }
-        .hero h1 {
-            font-size: 46px; line-height: 1.05; margin: 0;
-            color: #ffffff; letter-spacing: -0.02em;
-        }
-        .hero p {
-            margin-top: 14px;
-            font-size: 16px;
-            color: rgba(255,255,255,0.78);
-            max-width: 760px;
-        }
-        .badge-row { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
-        .badge {
-            padding: 7px 12px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.08);
-            border: 1px solid rgba(255,255,255,0.10);
-            color: rgba(255,255,255,0.86);
-            font-size: 13px;
-        }
-
-        /* Section cards */
-        .card {
-            border-radius: 18px;
-            padding: 22px 20px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.10);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-        }
-        .card h3 { margin: 0 0 8px 0; color: #fff; font-size: 18px; }
-        .card p { margin: 0; color: rgba(255,255,255,0.75); font-size: 14px; line-height: 1.55; }
-
-        /* Primary button styling */
-        div.stButton > button {
-            border-radius: 14px;
-            padding: 12px 16px;
-            border: 1px solid rgba(255,255,255,0.18);
-            background: linear-gradient(135deg, rgba(99,102,241,0.95), rgba(16,185,129,0.85));
-            color: white;
-            font-weight: 700;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.25);
-        }
-        div.stButton > button:hover {
-            transform: translateY(-1px);
-            filter: brightness(1.04);
-        }
-
-        /* Chat bubble styling */
-        .chat-wrap {
-            border-radius: 18px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.10);
-            padding: 16px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.22);
-        }
-
-        /* Small helper text */
-        .muted { color: rgba(255,255,255,0.65); font-size: 13px; }
-
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-inject_css()
 
 # ----------------------------
-# State init
+# App state
 # ----------------------------
 if "page" not in st.session_state:
     st.session_state.page = "landing"  # landing -> setup -> chat
@@ -142,8 +55,187 @@ if "messages" not in st.session_state:
 
 
 # ----------------------------
-# LLM call
+# Helpers
 # ----------------------------
+APP_DIR = Path(__file__).parent
+ASSETS_DIR = APP_DIR / "assets"
+
+
+def img_to_data_uri(img_path: Path) -> str:
+    if not img_path.exists():
+        return ""
+    b64 = base64.b64encode(img_path.read_bytes()).decode("utf-8")
+    suffix = img_path.suffix.lower().replace(".", "")
+    mime = "png" if suffix == "png" else suffix
+    return f"data:image/{mime};base64,{b64}"
+
+
+def set_page_background(page_name: str):
+    """
+    landing -> 1.png
+    setup   -> 2.png
+    chat    -> 3.png
+    """
+    mapping = {
+        "landing": ASSETS_DIR / "1.png",
+        "setup": ASSETS_DIR / "2.png",
+        "chat": ASSETS_DIR / "3.png",
+    }
+    img_path = mapping.get(page_name, ASSETS_DIR / "1.png")
+    data_uri = img_to_data_uri(img_path)
+
+    if not data_uri:
+        st.warning(f"Background image not found: {img_path}. Please upload it to assets/.")
+        data_uri = ""
+
+    st.markdown(
+        f"""
+        <style>
+        /* Hide Streamlit chrome */
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        header {{visibility: hidden;}}
+
+        /* Background image */
+        .stApp {{
+            background-image: url("{data_uri}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+
+        /* Dark overlay for readability */
+        .stApp::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(1200px 900px at 20% 15%, rgba(0, 255, 255, 0.12), transparent 55%),
+                        radial-gradient(1000px 800px at 85% 25%, rgba(255, 0, 255, 0.10), transparent 55%),
+                        linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.72));
+            pointer-events: none;
+            z-index: 0;
+        }}
+
+        /* Put content above overlay */
+        .block-container {{
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            padding-top: 2rem;
+            padding-bottom: 2.5rem;
+        }}
+
+        /* Sidebar styling */
+        [data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, rgba(10,10,18,0.92), rgba(5,5,10,0.92));
+            border-right: 1px solid rgba(255,255,255,0.08);
+        }}
+        [data-testid="stSidebar"] * {{
+            color: rgba(255,255,255,0.90) !important;
+        }}
+
+        /* Glass cards */
+        .glass {{
+            border-radius: 22px;
+            padding: 34px 30px;
+            background: rgba(10, 12, 18, 0.55);
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 18px 55px rgba(0,0,0,0.42);
+            backdrop-filter: blur(10px);
+        }}
+        .glass h1 {{
+            margin: 0;
+            font-size: 46px;
+            line-height: 1.05;
+            letter-spacing: -0.02em;
+            color: #ffffff;
+        }}
+        .glass p {{
+            margin-top: 12px;
+            font-size: 16px;
+            line-height: 1.6;
+            color: rgba(255,255,255,0.78);
+            max-width: 820px;
+        }}
+
+        .mini-card {{
+            border-radius: 18px;
+            padding: 18px 18px;
+            background: rgba(10, 12, 18, 0.48);
+            border: 1px solid rgba(255,255,255,0.10);
+            box-shadow: 0 10px 28px rgba(0,0,0,0.30);
+            backdrop-filter: blur(10px);
+        }}
+        .mini-card h3 {{
+            margin: 0 0 8px 0;
+            font-size: 18px;
+            color: #ffffff;
+        }}
+        .mini-card p {{
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.55;
+            color: rgba(255,255,255,0.74);
+        }}
+
+        .badges {{
+            margin-top: 16px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }}
+        .badge {{
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.10);
+            color: rgba(255,255,255,0.86);
+            font-size: 13px;
+        }}
+
+        /* Buttons */
+        div.stButton > button {{
+            width: 100%;
+            border-radius: 14px;
+            padding: 12px 16px;
+            border: 1px solid rgba(255,255,255,0.16);
+            background: linear-gradient(135deg, rgba(0, 220, 255, 0.85), rgba(196, 66, 255, 0.82));
+            color: #0b0f14;
+            font-weight: 800;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+        }}
+        div.stButton > button:hover {{
+            transform: translateY(-1px);
+            filter: brightness(1.05);
+        }}
+
+        /* Chat container */
+        .chat-shell {{
+            border-radius: 18px;
+            padding: 14px;
+            background: rgba(10, 12, 18, 0.45);
+            border: 1px solid rgba(255,255,255,0.10);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+            backdrop-filter: blur(10px);
+        }}
+
+        /* Slightly improve input visibility */
+        [data-testid="stChatInput"] textarea {{
+            background: rgba(255,255,255,0.06) !important;
+            border: 1px solid rgba(255,255,255,0.16) !important;
+            color: rgba(255,255,255,0.92) !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def go(page_name: str):
+    st.session_state.page = page_name
+    st.rerun()
+
+
 def generate_response(question: str) -> str:
     cfg = st.session_state.settings
     llm = ChatOpenAI(
@@ -158,34 +250,27 @@ def generate_response(question: str) -> str:
 
 
 # ----------------------------
-# Navigation helpers
-# ----------------------------
-def go(page_name: str):
-    st.session_state.page = page_name
-    st.rerun()
-
-
-# ----------------------------
-# Landing Page
+# Pages
 # ----------------------------
 def landing_page():
-    col1, col2 = st.columns([1.3, 1])
+    set_page_background("landing")
 
-    with col1:
+    c1, c2 = st.columns([1.35, 1])
+
+    with c1:
         st.markdown(
             """
-            <div class="hero">
-              <h1>Groq-Powered Q&A Chatbot</h1>
+            <div class="glass">
+              <h1>Groq-Powered<br/>Q&A Chatbot</h1>
               <p>
-                A clean, fast, and modern chatbot built with <b>Streamlit</b> + <b>LangChain</b>,
-                running online on <b>Streamlit Community Cloud</b> and powered by the <b>Groq</b> API.
-                Choose a model, tune generation settings, and chat in a simple interface.
+                A modern, fast chatbot built with <b>Streamlit</b> + <b>LangChain</b>, hosted online for free on
+                <b>Streamlit Community Cloud</b> and powered by <b>Groq</b>.
               </p>
-              <div class="badge-row">
-                <span class="badge">⚡ Fast responses</span>
-                <span class="badge">☁️ Runs online (Free)</span>
-                <span class="badge">🔐 Secure secrets</span>
-                <span class="badge">🧠 Multiple models</span>
+              <div class="badges">
+                <span class="badge">⚡ Fast</span>
+                <span class="badge">☁️ Online</span>
+                <span class="badge">🔐 Secure Secrets</span>
+                <span class="badge">🧠 Multiple Models</span>
               </div>
             </div>
             """,
@@ -193,23 +278,26 @@ def landing_page():
         )
 
         st.write("")
-        cta1, cta2 = st.columns([1, 1])
-        with cta1:
+        b1, b2, b3 = st.columns([1, 1, 1])
+        with b1:
             if st.button("🚀 Get Started"):
                 go("setup")
-        with cta2:
-            if st.button("💬 Go to Chat"):
+        with b2:
+            if st.button("⚙️ Setup"):
+                go("setup")
+        with b3:
+            if st.button("💬 Chat"):
                 go("chat")
 
-    with col2:
+    with c2:
         st.markdown(
             """
-            <div class="card">
-              <h3>How it works</h3>
+            <div class="mini-card">
+              <h3>What you can do</h3>
               <p>
-                1) Start on this landing page<br/>
-                2) Configure model + parameters<br/>
-                3) Chat with a friendly UI
+                • Ask questions and get instant answers<br/>
+                • Change model and creativity level<br/>
+                • Clear chat and restart anytime
               </p>
             </div>
             """,
@@ -218,11 +306,10 @@ def landing_page():
         st.write("")
         st.markdown(
             """
-            <div class="card">
-              <h3>Made for</h3>
+            <div class="mini-card">
+              <h3>Perfect for</h3>
               <p>
-                Students, demos, portfolios, mini projects, and quick Q&A tools.
-                Deploy from GitHub and share a link with anyone.
+                Portfolio projects, class demos, quick assistants, and shareable apps.
               </p>
             </div>
             """,
@@ -230,15 +317,14 @@ def landing_page():
         )
 
 
-# ----------------------------
-# Setup Page
-# ----------------------------
 def setup_page():
+    set_page_background("setup")
+
     st.markdown(
         """
-        <div class="hero">
+        <div class="glass">
           <h1>Setup</h1>
-          <p>Choose your model and generation settings. You can change these later anytime.</p>
+          <p>Choose your model and generation settings. You can update these later from the chat sidebar.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -248,7 +334,7 @@ def setup_page():
     left, right = st.columns([1, 1])
 
     with left:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="mini-card">', unsafe_allow_html=True)
         st.subheader("Model")
         model = st.selectbox(
             "Select Groq model",
@@ -260,38 +346,40 @@ def setup_page():
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("Generation controls")
+        st.markdown('<div class="mini-card">', unsafe_allow_html=True)
+        st.subheader("Generation")
         temperature = st.slider("Temperature", 0.0, 1.0, float(st.session_state.settings["temperature"]), 0.05)
         max_tokens = st.slider("Max tokens", 64, 2048, int(st.session_state.settings["max_tokens"]), 64)
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.write("")
-    action1, action2, action3 = st.columns([1, 1, 1])
-    with action1:
+    a1, a2, a3 = st.columns([1, 1, 1])
+
+    with a1:
         if st.button("⬅️ Back"):
             go("landing")
-    with action2:
+
+    with a2:
         if st.button("💾 Save Settings"):
-            st.session_state.settings["model"] = model
-            st.session_state.settings["temperature"] = float(temperature)
-            st.session_state.settings["max_tokens"] = int(max_tokens)
-            st.success("Saved! Now you can start chatting.")
-    with action3:
+            st.session_state.settings.update(
+                {"model": model, "temperature": float(temperature), "max_tokens": int(max_tokens)}
+            )
+            st.success("Saved! ✅")
+
+    with a3:
         if st.button("➡️ Continue to Chat"):
-            st.session_state.settings["model"] = model
-            st.session_state.settings["temperature"] = float(temperature)
-            st.session_state.settings["max_tokens"] = int(max_tokens)
+            st.session_state.settings.update(
+                {"model": model, "temperature": float(temperature), "max_tokens": int(max_tokens)}
+            )
             go("chat")
 
 
-# ----------------------------
-# Chat Page
-# ----------------------------
 def chat_page():
-    # Sidebar (always available on chat page)
+    set_page_background("chat")
+
+    # Sidebar controls
     st.sidebar.header("Chat Controls")
-    st.sidebar.caption("Adjust anytime. Changes apply to new messages.")
+    st.sidebar.caption("Changes apply to new messages.")
 
     st.session_state.settings["model"] = st.sidebar.selectbox(
         "Model",
@@ -319,32 +407,30 @@ def chat_page():
 
     st.markdown(
         """
-        <div class="hero">
+        <div class="glass">
           <h1>Chat</h1>
-          <p class="muted">Ask anything. Your chat history stays in this session.</p>
+          <p>Ask anything. Your chat stays in this session.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
     st.write("")
 
-    st.markdown('<div class="chat-wrap">', unsafe_allow_html=True)
+    st.markdown('<div class="chat-shell">', unsafe_allow_html=True)
 
-    # Show history
+    # Show chat history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Input
+    # Input + response
     user_text = st.chat_input("Type your message...")
 
     if user_text:
-        # Store user message
         st.session_state.messages.append({"role": "user", "content": user_text})
         with st.chat_message("user"):
             st.markdown(user_text)
 
-        # Generate assistant response
         with st.chat_message("assistant"):
             with st.spinner("Generating..."):
                 try:
